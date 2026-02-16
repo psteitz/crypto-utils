@@ -45,7 +45,7 @@ public final class AES {
     protected static final int AES_KEY_LENGTH = 256;
 
     /** Size of input buffer */
-    protected static final int INPUT_BUFFER_SIZE = 128;
+    protected static final int INPUT_BUFFER_SIZE = 8192;
 
     private AES() {
     } // Hide constructor
@@ -87,21 +87,18 @@ public final class AES {
             final byte[] encryptedText = cipher.doFinal(clearText);
             return Base64.getEncoder().encode(encryptedText);
         } catch (IllegalBlockSizeException | BadPaddingException ex) {
-            // None of these exceptions should ever happen
-            // Must be an error in library code or jdk configuration
-            ex.printStackTrace();
-            throw new IllegalStateException("Strong encryption not available.");
+            throw new IllegalStateException("Strong encryption not available.", ex);
         }
     }
 
     /**
-     * Encrypt cleartext input stream using secretKey with invialization vector iv,
+     * Encrypt cleartext input stream using secretKey with initialization vector iv,
      * writing ciphertext output bytes to outputStream. The output stream is
      * returned as raw bytes (not Base64 encoded). The output stream is closed on
-     * successful completion.
+     * completion.
      *
      * @param inputStream  input stream of bytes to encrypt
-     * @param outputStream oubput stream to receive encrypted bytes
+     * @param outputStream output stream to receive encrypted bytes
      * @param secretKey    SecretKey to use in encryption
      * @param iv           initialization vector
      * @throws InvalidKeyException if the key is not valid
@@ -115,12 +112,10 @@ public final class AES {
                     bytes -> cipher.update(bytes));
             final byte[] endBytes = cipher.doFinal();
             outputStream.write(endBytes);
-            outputStream.close();
         } catch (IllegalBlockSizeException | BadPaddingException ex) {
-            // None of these exceptions should ever happen
-            // Must be an error in library code or jdk configuration
-            ex.printStackTrace();
-            throw new IllegalStateException("Configuration error.");
+            throw new IllegalStateException("Configuration error.", ex);
+        } finally {
+            outputStream.close();
         }
     }
 
@@ -147,12 +142,10 @@ public final class AES {
             StreamUtils.pipeTransformedStream(inputStream, outputStream, INPUT_BUFFER_SIZE,
                     bytes -> cipher.update(bytes));
             outputStream.write(cipher.doFinal());
-            outputStream.close();
         } catch (IllegalBlockSizeException | BadPaddingException ex) {
-            // None of these exceptions should ever happen
-            // Must be an error in library code or jdk configuration
-            ex.printStackTrace();
-            throw new IllegalStateException("Strong encryption not available.");
+            throw new IllegalStateException("Strong encryption not available.", ex);
+        } finally {
+            outputStream.close();
         }
     }
 
@@ -183,9 +176,11 @@ public final class AES {
     public static void decrypt(final InputStream inputStream, final OutputStream outputStream,
             final SecretKey secretKey) throws InvalidKeyException, IOException {
         // Get the iv from the beginning of the stream
-        final byte[] iv = new byte[IV_BYTES];
-        inputStream.read(iv);
-        // Decrypt the rest of the input stream with ciper initialized using iv
+        final byte[] iv = inputStream.readNBytes(IV_BYTES);
+        if (iv.length < IV_BYTES) {
+            throw new IOException("Unexpected end of stream reading IV");
+        }
+        // Decrypt the rest of the input stream with cipher initialized using iv
         decrypt(inputStream, outputStream, secretKey, iv);
     }
 
@@ -241,10 +236,7 @@ public final class AES {
             return clearText;
         } catch (IllegalBlockSizeException
                 | BadPaddingException ex) {
-            // None of these exceptions should ever happen
-            // Must be error in library code or jdk
-            ex.printStackTrace();
-            throw new IllegalStateException("Strong encryption not available.");
+            throw new IllegalStateException("Strong encryption not available.", ex);
         }
     }
 
@@ -301,22 +293,22 @@ public final class AES {
     public static Cipher getCipher(final SecretKey key, final int mode, final byte[] iv, final String providerName)
             throws InvalidKeyException {
 
-        if (provider == "BC" && Security.getProvider("BC") == null) {
+        final String currentProvider = getProvider();
+        if ("BC".equals(currentProvider) && Security.getProvider("BC") == null) {
             Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
         }
 
         Cipher cipher = null;
         try {
             if (providerName == null) {
-                cipher = Cipher.getInstance("AES/GCM/NoPadding", provider);
+                cipher = Cipher.getInstance("AES/GCM/NoPadding", currentProvider);
             } else {
                 cipher = Cipher.getInstance("AES/GCM/NoPadding", providerName);
             }
             cipher.init(mode, key, new GCMParameterSpec(AES_TAG_BITS, iv));
         } catch (InvalidAlgorithmParameterException | NoSuchAlgorithmException | NoSuchProviderException
                 | NoSuchPaddingException ex) {
-            ex.printStackTrace();
-            throw new IllegalStateException("Provider not available or correctly configured");
+            throw new IllegalStateException("Provider not available or correctly configured", ex);
         }
         return cipher;
     }

@@ -37,8 +37,7 @@ public final class StreamUtils {
             try {
                 inputStream.close();
             } catch (IOException ex) {
-                // ignore, but dump stacktrace to syserr
-                ex.printStackTrace();
+                // ignore close failure
             }
         }
     }
@@ -71,8 +70,7 @@ public final class StreamUtils {
             try {
                 inputStream.close();
             } catch (IOException ex) {
-                // ignore, but dump stacktrace to syserr
-                ex.printStackTrace();
+                // ignore close failure
             }
         }
     }
@@ -95,7 +93,9 @@ public final class StreamUtils {
             while ((len = inputStream.read(buffer)) > 0) {
                 final byte[] receivedBytes = Arrays.copyOf(buffer, len);
                 final byte[] transformedBytes = transformer.transform(receivedBytes);
-                outputStream.write(transformedBytes);
+                if (transformedBytes != null) {
+                    outputStream.write(transformedBytes);
+                }
             }
         } finally {
             // Zero the buffer
@@ -103,8 +103,7 @@ public final class StreamUtils {
             try {
                 inputStream.close();
             } catch (IOException ex) {
-                // ignore, but dump stacktrace to syserr
-                ex.printStackTrace();
+                // ignore close failure
             }
         }
     }

@@ -21,8 +21,8 @@ There is no packaged distribution at this time. To build from source, execute
 ```mvn clean package``` from the top-level ```crypto-utils``` directory.
 
 ## Dependencies
-- [BouncyCastle - used by BC classes](https://www.bouncycastle.org/)
-- [Apache Commons I/O](https://commons.apache.org/proper/commons-io/)
+- [BouncyCastle 1.79 - used by BC classes](https://www.bouncycastle.org/)
+- Java 11+
 
 ## License
 [Apache 2.0](LICENSE)
@@ -39,7 +39,7 @@ The generated key will have the default length of 256 bits.  The length (in bits
 The ```KeyUtils``` class also supports password based key derivation.  Use ```generateAESKeyFromPhrase``` to generate keys derived from passphrase / salt combinations.  The number of hashing iterations can be specified, but defaults to a reasonable number.  Salt bytes should be at least 16 in length and these bytes should be random.  Recovering the key requires both the salt and the passphrase.
 
 #### PGP keys
-To generate a random key pair, use ```KeyUtils.generateKeyPair()```.  The public and private keys in the pair can be accessed using the getters provided by the [JCA KeyPair](https://docs.oracle.com/en/java/javase/12/docs/api/java.base/java/security/KeyPair.html) returned by this method.  The argumentless version of this method uses the default algorithm (RSA) and key length (2048 bits).  These can be overriden by using the versions that supply these parameters.
+To generate a random key pair, use ```KeyUtils.generateKeyPair()```.  The public and private keys in the pair can be accessed using the getters provided by the [JCA KeyPair](https://docs.oracle.com/en/java/javase/12/docs/api/java.base/java/security/KeyPair.html) returned by this method.  The argumentless version of this method uses the default algorithm (RSA) and key length (3072 bits).  These can be overridden by using the versions that supply these parameters.
 
 ```KeyUtils``` also supports reading PGP keys from OpenPGP-compliant exported keyrings.  The methods ```readSecretKeys``` and ```readPublicKeys``` read lists of [PGPSecretKey](https://javadoc.io/static/org.bouncycastle/bcpg-jdk15on/1.66/org/bouncycastle/openpgp/PGPSecretKey.html) and [PGPPublicKey](https://javadoc.io/static/org.bouncycastle/bcpg-jdk15on/1.64/org/bouncycastle/openpgp/PGPPublicKey.html) from ASCII-armored input streams.
 
@@ -54,7 +54,7 @@ The encryption methods that work with fixed-length byte arrays or strings Base64
 To use the BouncyCastle OpenPGP implementation, use the ```BCPGP``` class.  The encryption / decryption methods implemented by this class all implement [session-based PGP](https://datatracker.ietf.org/doc/html/rfc4880#page-17).
 PGP is used only in the transmission of a securely generated symmetric session key, which is the key used to encrypt the input message.  The session key is generated prior to encryption, PGP encrypted for the recipients public key and included in the encrypted message. ```BCPGP``` uses AES for symmetric encryption.
 
-The ```JdkPGP``` class implements PGP using JDK RSA with transformation ```RSA/ECB/PKCS1Padding```.  The implementation in this class does not use the session-based protocol - cleartext inputs are fully encrypted using PGP.
+The ```JdkPGP``` class implements RSA encryption using the JDK with transformation ```RSA/ECB/OAEPWithSHA-256AndMGF1Padding```.  The implementation in this class does not use the session-based PGP protocol — cleartext inputs are directly encrypted using RSA in blocks.  This is suitable only for small payloads; for bulk data, prefer ```BCPGP``` which uses a hybrid session-key approach.
 
 ### Benchmarks
 Code to run JMH benchmarks is in ```/benchmarks```.  To run the benchmarks, you need to first install the main code using ```mvn install``` from the top-level ```crypto-utils``` directory.  To compile the benchmarks, execute ```mvn package``` from the ```benchmarks``` directory and then

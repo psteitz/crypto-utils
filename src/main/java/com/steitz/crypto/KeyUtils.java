@@ -30,7 +30,7 @@ public final class KeyUtils {
     private static final int HASH_ITERATION_COUNT = 65536;
 
     /** Default length of generated PGP keys */
-    private static final int DEFAULT_PGP_KEY_LENGTH = 2048;
+    private static final int DEFAULT_PGP_KEY_LENGTH = 3072;
 
     /** Default PGP algorithm */
     private static final String DEFAULT_ALGORITHM = "RSA";

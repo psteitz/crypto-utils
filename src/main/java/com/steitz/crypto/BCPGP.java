@@ -56,7 +56,7 @@ public final class BCPGP {
         private static final BigInteger DEFAULT_EXPONENT = new BigInteger("10001", 16);
 
         /** Default length for generated keys */
-        private static final int DEFAULT_KEY_LENGTH = 2048;
+        private static final int DEFAULT_KEY_LENGTH = 3072;
 
         /** Default certainty for generated keys */
         private static final int DEFAULT_CERTAINTY = 80;
@@ -89,8 +89,9 @@ public final class BCPGP {
                 final ByteArrayOutputStream baos = new ByteArrayOutputStream();
                 decryptFileToStream(cipherTextFilePath, privateKey,
                                 passPhrase, baos);
-                baos.writeTo(new FileOutputStream(decryptedFilePath));
-                baos.close();
+                try (FileOutputStream fos = new FileOutputStream(decryptedFilePath)) {
+                        baos.writeTo(fos);
+                }
         }
 
         /**
@@ -118,12 +119,12 @@ public final class BCPGP {
         }
 
         /**
-         * Decrpts an input stream presumed to contain ciphertext bytes encrypted
+         * Decrypts an input stream presumed to contain ciphertext bytes encrypted
          * for the given private key and writes the decrypted clear text bytes to the
          * output stream.
          *
          * @param privateKey   PGP private key to use in decryption
-         * @param inputStream  input stream contaiing the ciphertext bytes
+         * @param inputStream  input stream containing the ciphertext bytes
          * @param outputStream output stream to write cleartext bytes to
          * @throws IOException  if an IO error occurs
          * @throws PGPException if a decryption error occurs
@@ -138,45 +139,60 @@ public final class BCPGP {
                 final InputStream decoderInputStream = PGPUtil
                                 .getDecoderStream(inputStream);
 
-                // Attach a PGP object factory to the stream
-                final PGPObjectFactory pgpFactory = new PGPObjectFactory(decoderInputStream,
-                                new BcKeyFingerprintCalculator());
+                try {
+                        // Attach a PGP object factory to the stream
+                        final PGPObjectFactory pgpFactory = new PGPObjectFactory(decoderInputStream,
+                                        new BcKeyFingerprintCalculator());
 
-                // Get the first object in the stream. If it is not a PGPEncryptedDataList,
-                // skip past it and assume the next item is the list of encrypted data objects.
-                final Object pgpObject = pgpFactory.nextObject();
-                PGPEncryptedDataList encryptedDataList;
-                if (pgpObject instanceof PGPEncryptedDataList) {
-                        encryptedDataList = (PGPEncryptedDataList) pgpObject;
-                } else {
-                        encryptedDataList = (PGPEncryptedDataList) pgpFactory.nextObject();
+                        // Get the first object in the stream. If it is not a PGPEncryptedDataList,
+                        // skip past it and assume the next item is the list of encrypted data objects.
+                        final Object pgpObject = pgpFactory.nextObject();
+                        PGPEncryptedDataList encryptedDataList;
+                        if (pgpObject instanceof PGPEncryptedDataList) {
+                                encryptedDataList = (PGPEncryptedDataList) pgpObject;
+                        } else {
+                                encryptedDataList = (PGPEncryptedDataList) pgpFactory.nextObject();
+                        }
+
+                        // Find the encrypted data matching the provided private key
+                        final Iterator<PGPEncryptedData> encryptedDataIterator = encryptedDataList
+                                        .getEncryptedDataObjects();
+                        PGPPublicKeyEncryptedData encryptedPayload = null;
+                        while (encryptedDataIterator.hasNext()) {
+                                final PGPPublicKeyEncryptedData data = (PGPPublicKeyEncryptedData) encryptedDataIterator
+                                                .next();
+                                if (data.getKeyID() == privateKey.getKeyID()) {
+                                        encryptedPayload = data;
+                                        break;
+                                }
+                        }
+                        if (encryptedPayload == null) {
+                                throw new PGPException(
+                                                "No encrypted data found for private key ID: "
+                                                                + Long.toHexString(privateKey.getKeyID()));
+                        }
+
+                        // Set up decryption pipeline
+                        final InputStream clearStream = encryptedPayload
+                                        .getDataStream(new BcPublicKeyDataDecryptorFactory(privateKey));
+                        final JcaPGPObjectFactory compressedObjectFactory = new JcaPGPObjectFactory(clearStream);
+                        final PGPCompressedData compressedData = (PGPCompressedData) compressedObjectFactory
+                                        .nextObject();
+                        final JcaPGPObjectFactory literalDataFactory = new JcaPGPObjectFactory(
+                                        compressedData.getDataStream());
+                        final PGPLiteralData literalData = (PGPLiteralData) literalDataFactory.nextObject();
+                        final InputStream literalDataStream = literalData.getDataStream();
+
+                        // Stream out decrypted bytes using buffered reads
+                        final byte[] buffer = new byte[8192];
+                        int bytesRead;
+                        while ((bytesRead = literalDataStream.read(buffer)) >= 0) {
+                                outputStream.write(buffer, 0, bytesRead);
+                        }
+                } finally {
+                        decoderInputStream.close();
+                        inputStream.close();
                 }
-
-                // Iterate through the enctypted data list, saving the last one in
-                // encryptedPayLoad.
-                final Iterator<PGPEncryptedData> encryptedDataIterator = encryptedDataList
-                                .getEncryptedDataObjects();
-                PGPPublicKeyEncryptedData encryptedPayload = null;
-                while (encryptedDataIterator.hasNext()) {
-                        encryptedPayload = (PGPPublicKeyEncryptedData) encryptedDataIterator.next();
-                }
-
-                // Set up decryption pipeline
-                InputStream clearStream = encryptedPayload
-                                .getDataStream(new BcPublicKeyDataDecryptorFactory(privateKey));
-                final JcaPGPObjectFactory compressedObjectFactory = new JcaPGPObjectFactory(clearStream);
-                PGPCompressedData compressedData = (PGPCompressedData) compressedObjectFactory.nextObject();
-                final JcaPGPObjectFactory literalDataFactory = new JcaPGPObjectFactory(compressedData.getDataStream());
-                PGPLiteralData literalData = (PGPLiteralData) literalDataFactory.nextObject();
-                InputStream literalDataStream = literalData.getDataStream();
-
-                // Stream out decrypted bytes
-                int ch;
-                while ((ch = literalDataStream.read()) >= 0) {
-                        outputStream.write(ch);
-                }
-                decoderInputStream.close();
-                inputStream.close();
         }
 
         /**
@@ -195,13 +211,13 @@ public final class BCPGP {
         }
 
         /**
-         * Decrpts an input stream presumed to contain ciphertext bytes encrypted
+         * Decrypts an input stream presumed to contain ciphertext bytes encrypted
          * for the given private key and writes the decrypted clear text bytes to the
          * output stream.
          *
          * @param secretKey    PGPSecretKey to use in decryption
          * @param passPhrase   passphrase for secretKey
-         * @param inputStream  input stream contaiing the ciphertext bytes
+         * @param inputStream  input stream containing the ciphertext bytes
          * @param outputStream output stream to write cleartext bytes to
          * @throws IOException  if an IO error occurs
          * @throws PGPException if a decryption error occurs
@@ -234,8 +250,9 @@ public final class BCPGP {
                         PGPException,
                         InvalidCipherTextException {
 
-                final InputStream fileStream = new FileInputStream(cipherTextFilePath);
-                decrypt(privateKey, passPhrase, fileStream, outputStream);
+                try (InputStream fileStream = new FileInputStream(cipherTextFilePath)) {
+                        decrypt(privateKey, passPhrase, fileStream, outputStream);
+                }
         }
 
         /**
@@ -255,8 +272,9 @@ public final class BCPGP {
                         PGPException,
                         InvalidCipherTextException {
 
-                final InputStream fileStream = new FileInputStream(cipherTextFilePath);
-                decrypt(privateKey, fileStream, outputStream);
+                try (InputStream fileStream = new FileInputStream(cipherTextFilePath)) {
+                        decrypt(privateKey, fileStream, outputStream);
+                }
         }
 
         /**
@@ -395,7 +413,7 @@ public final class BCPGP {
                                 new File(clearTextFilePath));
                 compressedDataGenerator.close();
                 PGPEncryptedDataGenerator encryptedDataGenerator = new PGPEncryptedDataGenerator(
-                                new BcPGPDataEncryptorBuilder(SymmetricKeyAlgorithmTags.TRIPLE_DES)
+                                new BcPGPDataEncryptorBuilder(SymmetricKeyAlgorithmTags.AES_256)
                                                 .setSecureRandom(new SecureRandom()));
                 encryptedDataGenerator.addMethod(new BcPublicKeyKeyEncryptionMethodGenerator(publicKey));
                 byte[] bytes = baos.toByteArray();

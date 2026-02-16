@@ -25,17 +25,17 @@ import javax.crypto.NoSuchPaddingException;
 public final class JdkPGP {
 
     /** Default transformation */
-    private static final String DEFAULT_TRANSFORMATION = "RSA/ECB/PKCS1Padding";
+    private static final String DEFAULT_TRANSFORMATION = "RSA/ECB/OAEPWithSHA-256AndMGF1Padding";
 
     private JdkPGP() {
     } // Hide constructor
 
     /**
-     * PGP encrypt an input stream to an output stream using the provided public
+     * RSA encrypt an input stream to an output stream using the provided public
      * key.
      *
      * @param inputStream  stream of input bytes
-     * @param outputStream output steam of encrypted bytes
+     * @param outputStream output stream of encrypted bytes
      * @param publicKey    public key to encrypt the stream for
      * @throws IOException         if an IO error occurs
      * @throws InvalidKeyException if the public key is not valid
@@ -49,10 +49,11 @@ public final class JdkPGP {
 
         try {
             // Get the length of the public key and set encryption block size accordingly.
+            // OAEP with SHA-256 has 66 bytes overhead (2 * 32 + 2)
             final int keyLength = ((RSAPublicKey) publicKey).getModulus().bitLength();
-            final int blockSize = keyLength / 16; // 2048 -> 128, 1024 -> 64G
+            final int blockSize = keyLength / 8 - 66; // 2048 -> 190, 3072 -> 318
 
-            // Create and initialize a PGP encryption Cipher
+            // Create and initialize an RSA encryption Cipher
             final Cipher encryptionCipher = Cipher.getInstance(DEFAULT_TRANSFORMATION);
             encryptionCipher.init(Cipher.ENCRYPT_MODE, publicKey);
 
@@ -62,15 +63,11 @@ public final class JdkPGP {
                         try {
                             return encryptionCipher.doFinal(bytes);
                         } catch (IllegalBlockSizeException | BadPaddingException e) {
-                            e.printStackTrace();
-                            return null;
+                            throw new IllegalStateException("Encryption failed", e);
                         }
                     });
         } catch (NoSuchAlgorithmException | NoSuchPaddingException ex) {
-            // Should never happen - provider is not set up
-            System.err.println("Algorithm not available.");
-            ex.printStackTrace();
-            throw new IllegalStateException("RSA PGP not available.");
+            throw new IllegalStateException("RSA encryption not available.", ex);
         } finally {
             inputStream.close();
             outputStream.close();
@@ -78,12 +75,12 @@ public final class JdkPGP {
     }
 
     /**
-     * Decrpts an input stream presumed to contain ciphertext bytes encrypted
+     * Decrypts an input stream presumed to contain ciphertext bytes encrypted
      * for the given public key and writes the decrypted clear text bytes to the
      * output stream.
      *
-     * @param privateKey   PGP private key to use in decryption
-     * @param inputStream  input stream contaiing the ciphertext bytes
+     * @param privateKey   private key to use in decryption
+     * @param inputStream  input stream containing the ciphertext bytes
      * @param outputStream output stream to write cleartext bytes to
      * @throws IOException         if an IO error occurs
      * @throws InvalidKeyException if the private key is not valid
@@ -96,7 +93,7 @@ public final class JdkPGP {
         try {
             // Get the length of the private key and set decryption block size accordingly.
             final int keyLength = ((RSAPrivateKey) privateKey).getModulus().bitLength();
-            final int blockSize = keyLength / 8; // 2048 -> 256, 1024 -> 128
+            final int blockSize = keyLength / 8; // 2048 -> 256, 3072 -> 384
             final Cipher decryptionCipher = Cipher.getInstance(DEFAULT_TRANSFORMATION);
             decryptionCipher.init(Cipher.DECRYPT_MODE, privateKey);
             StreamUtils.pipeTransformedStream(inputStream, outputStream, blockSize,
@@ -104,15 +101,11 @@ public final class JdkPGP {
                         try {
                             return decryptionCipher.doFinal(bytes);
                         } catch (IllegalBlockSizeException | BadPaddingException e) {
-                            e.printStackTrace();
-                            return null;
+                            throw new IllegalStateException("Decryption failed", e);
                         }
                     });
         } catch (NoSuchAlgorithmException | NoSuchPaddingException ex) {
-            // Should never happen - provider is not set up
-            System.err.println("Algorithm not available.");
-            ex.printStackTrace();
-            throw new IllegalStateException("RSA PGP not available.");
+            throw new IllegalStateException("RSA encryption not available.", ex);
         } finally {
             outputStream.close();
             inputStream.close();
